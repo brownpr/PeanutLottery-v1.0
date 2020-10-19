@@ -1,3 +1,3 @@
 # PeanutLottery-v1.0
 
-Solidity DApp lottery 
+Solidity lottery DApp
