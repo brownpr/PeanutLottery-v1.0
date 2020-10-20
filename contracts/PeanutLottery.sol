@@ -44,12 +44,12 @@ contract PeanutLottery is Ownable, ISuperApp {
     ///@dev power up fee, 1 peanut to trigger event
     uint constant private _powerUpFee = 1e18;
     ///@dev variable to allow user to remain in winners pool
-    uint8 public ignoreDraw;
+    uint8 private _ignoreDraw;
 
 
     ///@dev burned peanuts go to 0x0 address
     address private burnerAddress = address(0);
-    uint public burnedPeanuts;
+    uint private _burnedPeanuts;
 
     ///@dev timestamp variables
     uint public gameLaunchTime;
@@ -119,7 +119,7 @@ contract PeanutLottery is Ownable, ISuperApp {
         gameLaunchTime = block.timestamp;
         _lastTimeStamp = block.timestamp;
 
-        ignoreDraw = 0;
+        _ignoreDraw = 0;
 
     }
 
@@ -222,7 +222,7 @@ contract PeanutLottery is Ownable, ISuperApp {
         //_updatePeanutAllocation(player);
 
         address oldWinner = _winner;
-        if (ignoreDraw == 0) {
+        if (_ignoreDraw == 0) {
 
             if (_playersSet.length() > 0) {
                 //not ideal RNG 
@@ -280,7 +280,7 @@ contract PeanutLottery is Ownable, ISuperApp {
             emit WinnerChanged(_winner);
         } else {
             //remove one ignoreDraw
-            ignoreDraw = ignoreDraw--;
+            _ignoreDraw--;
             emit WinnerUnchanged(_winner);
 
         }
@@ -352,6 +352,16 @@ contract PeanutLottery is Ownable, ISuperApp {
             )
         );
     }
+
+    //return number of burnedPeanuts
+    function burnedNuts() view public returns(uint numberOfBurnedNuts){
+        return numberOfBurnedNuts = _burnedPeanuts;
+    }
+
+    //return number of ignore draws
+    function ignoreTokens() view public returns(uint ignoreDrawTokens){
+        return ignoreDrawTokens = _ignoreDraw;
+    }
         
 
     /* -----------------------------------
@@ -359,36 +369,37 @@ contract PeanutLottery is Ownable, ISuperApp {
     --------------------------------------*/
     
     function triggerEvent(
-        address player,
         bytes calldata ctx
     ) external
     returns(bytes memory newCtx) 
     {
         (,,address sender,,) = _host.decodeCtx(ctx);
-        _superPeanut.transferFrom(sender, burnerAddress, _powerUpFee);
+        _acceptedToken.transferFrom(sender, address(this), _powerUpFee);
 
-        burnedPeanuts = burnedPeanuts + _powerUpFee;
-        return _draw(player, ctx);
+
+        _burnedPeanuts = _burnedPeanuts + _powerUpFee;
+        return _draw(sender, ctx);
     }
 
     function keepWinning(
-        bytes calldata ctx,
-        address /*player*/
+        bytes calldata ctx
     ) 
         external
-        onlyWinner
     {
         (,,address sender,,) = _host.decodeCtx(ctx);
-        _superPeanut.transferFrom(sender, burnerAddress, _powerUpFee);
+        assert(address(sender) == address(_winner));
+        _acceptedToken.transferFrom(sender, address(this), _powerUpFee);
 
-        ignoreDraw = ignoreDraw++;
+        _burnedPeanuts = _burnedPeanuts + _powerUpFee;
+
+        _ignoreDraw++;
     }
     
 
 
 
     /* ------------------------------------------
-                Callbacks for SuperApp
+                Superfluid Callbacks
     ---------------------------------------------*/
     function beforeAgreementCreated(
         ISuperToken superToken,
@@ -504,11 +515,6 @@ contract PeanutLottery is Ownable, ISuperApp {
         require(_isCFAv1(agreementClass), "peanutLottery: only CFAv1 is supported");
         _;
     }
-
-    modifier onlyWinner() {
-        require(msg.sender == address(_winner), _err_needToBeWinner);
-        _;
-    }
-
+ 
     
 }
