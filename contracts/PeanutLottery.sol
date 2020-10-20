@@ -95,8 +95,8 @@ contract PeanutLottery is Ownable, ISuperApp {
         _acceptedToken = acceptedToken;
         _peanutToken = peanutToken;
 
-        //create the superPeanut contract;
-        // _superPeanut = _host.getERC20Wrapper(
+        // //create the superPeanut contract;
+        // (_superPeanut , ) = _host.getERC20Wrapper(
         //     _peanutToken,
         //     "NUTS"
         // );
@@ -284,15 +284,13 @@ contract PeanutLottery is Ownable, ISuperApp {
             emit WinnerUnchanged(_winner);
 
         }
-
-
     }
 
 
     /* -----------------------------
         PEANUT FACTORY
     --------------------------------*/
-    
+
     ///@dev function to give farmers their fair share 
     function _updatePeanutAllocation(address farmer) private {
         // here we should give the user some units in the IDA based on their total stream size
