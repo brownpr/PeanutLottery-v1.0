@@ -29,7 +29,6 @@ import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 contract PeanutLottery is Ownable, ISuperApp {
-    //using SafeMath for uint256;
     
     ///@dev Error defining
     string constant private _err_SafeMathsDivision = "SafeMath.sol Error: divission by zero";
@@ -45,35 +44,31 @@ contract PeanutLottery is Ownable, ISuperApp {
     uint constant private _powerUpFee = 1e18;
     ///@dev variable to allow user to remain in winners pool
     uint8 private _ignoreDraw;
-
-
-    ///@dev burned peanuts go to 0x0 address
-    address private burnerAddress = address(0);
-    uint private _burnedPeanuts;
+    ///@dev winner address
+    address private _winner;
 
     ///@dev timestamp variables
     uint public gameLaunchTime;
     uint private _lastTimeStamp;
 
-
-
-    ISuperfluid private _host; // host
-    IConstantFlowAgreementV1 private _cfa; // Stored constant flow agreement class address 
+    ///@dev token consts
     ISuperToken private _acceptedToken; // Accepted Token
-    
-
     IERC20 private _peanutToken; // underlying unwrapped peanuts
     address private _superPeanut; // superPeanut address, wrapped by superfluid
-    
+    address private burnerAddress = address(0); // burned peanuts go to 0x0 address
+    uint private _burnedPeanuts;
+
+    ///@dev superfluid-finance const
+    ISuperfluid private _host; // host
     uint32 public constant INDEX_ID = 0;
+    IConstantFlowAgreementV1 private _cfa; // Stored constant flow agreement class address 
     IInstantDistributionAgreementV1 private _ida;
     
     
     ///@dev using enumerableSet to store addresses 
     EnumerableSet.AddressSet private _playersSet;
     using EnumerableSet for EnumerableSet.AddressSet;
-    ///@dev winner address
-    address private _winner;
+
 
 
     constructor(
@@ -93,7 +88,14 @@ contract PeanutLottery is Ownable, ISuperApp {
         _cfa = cfa;
         _ida = ida;
         _acceptedToken = acceptedToken;
-        _peanutToken = peanutToken;
+        _peanutToken = peanutToken; 
+
+        uint256 configWord = 
+            SuperAppDefinitions.TYPE_APP_FINAL|
+            SuperAppDefinitions.BEFORE_AGREEMENT_TERMINATED_NOOP |
+            SuperAppDefinitions.AFTER_AGREEMENT_TERMINATED_NOOP;
+        
+        _host.registerApp(configWord);
 
         //create the superPeanut contract;
         (_superPeanut , ) = _host.getERC20Wrapper(
@@ -111,9 +113,8 @@ contract PeanutLottery is Ownable, ISuperApp {
             )
         );
 
-        uint256 configWord = SuperAppDefinitions.TYPE_APP_FINAL;
+        
 
-        _host.registerApp(configWord);
 
         ///@dev game launch times for peanut calcultations
         gameLaunchTime = block.timestamp;
@@ -409,10 +410,11 @@ contract PeanutLottery is Ownable, ISuperApp {
         onlyHost
         onlyExpected(superToken, agreementClass)
         returns(bytes memory cbdata)
-    {
+    {   
+        require(superToken == ISuperToken(_superPeanut), "DRT: Unsupported cash token");
+        require(agreementClass == address(_ida), "DRT: Unsupported agreement");
         cbdata = _meetRequirements(ctx);
     }
-
 
     function afterAgreementCreated(
         ISuperToken /*superToken*/,
@@ -438,7 +440,9 @@ contract PeanutLottery is Ownable, ISuperApp {
         onlyHost
         onlyExpected(superToken, agreementClass)
         returns (bytes memory cbdata)
-    {
+    {   
+        require(superToken == ISuperToken(_superPeanut), "DRT: Unsupported cash token");
+        require(agreementClass == address(_ida), "DRT: Unsupported agreement");
         cbdata = _meetRequirements(ctx);
     }
 
@@ -465,23 +469,27 @@ contract PeanutLottery is Ownable, ISuperApp {
         external view override 
         onlyHost
         returns (bytes memory data) 
-    {
+    {   
+        if(superToken != ISuperToken(_superPeanut)) return new bytes(0);
+        if(agreementClass != address(_ida)) return new bytes(0);
         //Never revert in a termination callback
         if(!_isSameToken(superToken) || !_isCFAv1(agreementClass)) return abi.encode(true);
         return abi.encode(false);
     }
 
     function afterAgreementTerminated(
-        ISuperToken /*superToken*/,
+        ISuperToken superToken,
         bytes calldata ctx,
-        address /*agreementClass*/,
+        address agreementClass,
         bytes32 /*agreementId*/,
         bytes calldata cbdata
     )
         external override
         onlyHost
         returns(bytes memory newCtx)
-    {
+    {   
+        if(superToken != ISuperToken(_superPeanut)) return ctx;
+        if(agreementClass != address(_ida)) return ctx;
         //Never rever in a termination callback
         (bool shouldIgnore) = abi.decode(cbdata, (bool));
         if (shouldIgnore) return ctx;
@@ -492,7 +500,11 @@ contract PeanutLottery is Ownable, ISuperApp {
         private view
         returns (bool)
     {
-        return address(superToken) == address(_acceptedToken);
+        return address(superToken) == address(_superPeanut);
+    }
+
+    function _isSameIDA(address agreementClass) private view returns (bool) {
+        return agreementClass == address(_ida);
     }
 
     function _isCFAv1(address agreementClass)
