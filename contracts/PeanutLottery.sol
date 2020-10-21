@@ -63,7 +63,7 @@ contract PeanutLottery is Ownable, ISuperApp {
     
 
     IERC20 private _peanutToken; // underlying unwrapped peanuts
-    ISuperToken private _superPeanut; // superPeanut address, wrapped by superfluid
+    address private _superPeanut; // superPeanut address, wrapped by superfluid
     
     uint32 public constant INDEX_ID = 0;
     IInstantDistributionAgreementV1 private _ida;
@@ -95,21 +95,21 @@ contract PeanutLottery is Ownable, ISuperApp {
         _acceptedToken = acceptedToken;
         _peanutToken = peanutToken;
 
-        // //create the superPeanut contract;
-        // (_superPeanut , ) = _host.getERC20Wrapper(
-        //     _peanutToken,
-        //     "NUTS"
-        // );
-//        _host.callAgreement(
-//            _ida,
-//            abi.encodeWithSelector(
-//                _ida.createIndex.selector,
-//                _superPeanut,
-//                INDEX_ID,
-//                new bytes(0)
-//            )
-//        );
-
+        //create the superPeanut contract;
+        (_superPeanut , ) = _host.getERC20Wrapper(
+            _peanutToken,
+            "NUTS"
+        );
+        
+        _host.callAgreement(
+            _ida,
+            abi.encodeWithSelector(
+                _ida.createIndex.selector,
+                _superPeanut,
+                INDEX_ID,
+                new bytes(0)
+            )
+        );
 
         uint256 configWord = SuperAppDefinitions.TYPE_APP_FINAL;
 
@@ -298,12 +298,12 @@ contract PeanutLottery is Ownable, ISuperApp {
         uint128 currentUnits;
 
         // here we give the farmer the appropriate amount of peanutAllocation (units) based on their stream
-        (,currentUnits,) = _ida.getSubscription(_superPeanut, address(this), INDEX_ID, farmer);
+        (,currentUnits,) = _ida.getSubscription(ISuperToken(_superPeanut), address(this), INDEX_ID, farmer);
         _host.callAgreement(
             _ida,
             abi.encodeWithSelector(
                 _ida.updateSubscription.selector,
-                _superPeanut,
+                ISuperToken(_superPeanut),
                 INDEX_ID,
                 farmer,
                 totalStreamSize,
@@ -328,12 +328,12 @@ contract PeanutLottery is Ownable, ISuperApp {
         ///@dev If no peanuts are ready for harvest, return
         if(peanutQuantity == 0) {return;}
         //harvest the peanuts
-        _superPeanut.upgrade(peanutQuantity);
+        ISuperToken(_superPeanut).upgrade(peanutQuantity);
         //to avoid leftovers, collect peanutAmount
-        uint peanutAmount = _superPeanut.balanceOf(address(this));
+        uint peanutAmount = ISuperToken(_superPeanut).balanceOf(address(this));
         // check exactly how much we should distribute (there is a precision issue so need this extra function)
         (uint256 actualPeanutAmount,) = _ida.calculateDistribution(
-            _superPeanut,
+            ISuperToken(_superPeanut),
             address(this), 
             INDEX_ID,
             peanutAmount);
