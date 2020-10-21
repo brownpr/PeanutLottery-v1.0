@@ -221,7 +221,7 @@ contract PeanutLottery is Ownable, ISuperApp {
         private
         returns (bytes memory newCtx)
     {
-        //_distributeHarvest();
+        _distributeHarvest();
         //_updatePeanutAllocation(player);
 
         address oldWinner = _winner;
@@ -296,7 +296,7 @@ contract PeanutLottery is Ownable, ISuperApp {
 
     ///@dev Function that wraps peanuts into superPeanuts when called, 1 per second since last called. 
     function harvestAmount() view public returns(uint _peanutsToHarvest){
-        _peanutsToHarvest = block.timestamp - _lastTimeStamp;
+        _peanutsToHarvest = (block.timestamp - _lastTimeStamp)/1000;
     }
 
     ///@dev Function to distributed peanuts to all users after _draw is run
