@@ -10,9 +10,12 @@ const deploySuperToken = require("@superfluid-finance/ethereum-contracts/scripts
 const SuperfluidSDK = require("@superfluid-finance/ethereum-contracts");
 const { web3 } = require("@openzeppelin/test-helpers/src/setup");
 const PeanutLotteryTest = artifacts.require("PeanutLottery");
-const traveler = require("ganache-time-traveler")
+const traveler = require("ganache-time-traveler");
+const ganache = require("ganache-cli");
 
-contract("PeanutLottery", accounts => {
+
+
+contract("PeanutLottery", async (accounts) => {
 
     const errorHandler = err => { if (err) throw err; };
 
@@ -27,14 +30,17 @@ contract("PeanutLottery", accounts => {
     let daix;
     let app;
 
-    const nutsAddress = "0x99dD48C6FC705028cFe34BA30651e3Fe4be9713e";
+    //const nutsAddress = "0x99dD48C6FC705028cFe34BA30651e3Fe4be9713e";
     let supernut;
-    let nuts;
-    let nutx;
+    let nut;
+
+
 
     beforeEach(async function () {
-        await deployFramework(errorHandler);
+        let snapshot = await traveler.takeSnapshot();
+        snapshotId = snapshot['result'];
 
+        await deployFramework(errorHandler);
         sf = new SuperfluidSDK.Framework({ web3Provider: web3.currentProvider });
         await sf.initialize();
 
@@ -51,34 +57,49 @@ contract("PeanutLottery", accounts => {
             }
         }
 
+        //daix token
         await deploySuperToken(errorHandler, [":", "fDAI"]);
-
         const daixWrapper = await sf.getERC20Wrapper(dai);
         daix = await sf.contracts.ISuperToken.at(daixWrapper.wrapperAddress);
 
+
+        //nuts token
+        if (!nut) {
+            await deployTestToken(errorHandler, [":","NUTS"]);
+            const nutsAddress = await sf.resolver.get("tokens.NUTS");
+            nut = await sf.contracts.TestToken.at(nutsAddress);
+        }
+
+        await deploySuperToken(errorHandler, [":","NUTS"]);
+        const nutsWrapper = await sf.getERC20Wrapper(nut);
+        supernut = await sf.contracts.ISuperToken.at(nutsWrapper.wrapperAddress);
         
+
+
         app = await web3tx(PeanutLotteryTest.new, "Deploy PeanutLottery")(
             sf.host.address,
             sf.agreements.cfa.address,
             sf.agreements.ida.address,
             daix.address,
-            nutsAddress
+            supernut.address
         );
-        
-        const supernutAddress = await sf.resolver.get(nutsAddress);
-        console.log(supernutAddress);
-        // const supernutWrapper = await sf.getERC20Wrapper(nutsAddress);
-        // console.log(supernutWrapper);
-        //const supernutAddress = await sf.contracts.ISuperToken.at(supernut.address);
-        //console.log("-----------supernutAddress is: " + supernutAddress);
-        //nuts = await sf.contracts.ISuperToken.at(supernutAddress);
-        //const nutsWrapper = await sf.getERC20Wrapper(nut); 
-        //nutx = await sf.contracts.ISuperToken.at(nutsWrapper.wrapperAddress);
 
+        
         for (let i = 0; i < accounts.length; ++i) {
             await web3tx(dai.approve, `Account ${i} approves daix`)(daix.address, toWad(100), { from: accounts[i] });
         }
+
+        //time travel
+        timeDelta = 60*1000; 
+        console.log("traveling " + (timeDelta/1000) + " seconds into the future ...");
+        await traveler.advanceTimeAndBlock(timeDelta);
     });   
+
+    afterEach(async() => {
+        await traveler.revertToSnapshot(snapshotId);
+    });
+
+
 
     async function printRealtimeBalance(label, account) {
         const b = await daix.realtimeBalanceOfNow.call(account);
@@ -89,14 +110,14 @@ contract("PeanutLottery", accounts => {
         return b;
     }
 
-    // async function printNutsRealtimeBalance(label, account) {
-    //     const b = await nuts.balanceOf.call(account);
-    //     console.log(`${label} realtime balance`,
-    //         b.availableBalance.toString(),
-    //         b.deposit.toString(),
-    //         b.owedDeposit.toString());
-    //     return b;
-    // }
+    async function printNutsRealtimeBalance(label, account) {
+        const b = await supernut.realtimeBalanceOfNow.call(account);
+        console.log(`${label} realtime peanut balance`,
+            b.availableBalance.toString(),
+            b.deposit.toString(),
+            b.owedDeposit.toString());
+        return b;
+    }
 
     function createPlayBatchCall(upgradeAmount = 0) {
         return [
@@ -647,27 +668,49 @@ contract("PeanutLottery", accounts => {
     // })
 
     it("should create and allocate peanuts to players ", async () => {
+        let appRealtimeBalance;
+        let appRealtimePeanutBalance;
+        appRealtimeBalance = printRealtimeBalance("App", app.address);
+        appRealtimePeanutBalance = printNutsRealtimeBalance("App", app.address);
+        console.log("peanuts ready to harvest " + (await app.harvestAmount.call()));
         assert.equal((await app.currentWinner.call()).player, ZERO_ADDRESS);
+
         //3 players join
         await web3tx(sf.host.batchCall, "Carol joining the game")(
             createPlayBatchCall(100),
             { from: carol }
         );
+        appRealtimeBalance = printRealtimeBalance("App", app.address);
+        appRealtimePeanutBalance = printNutsRealtimeBalance("App", app.address);
+        console.log("peanuts ready to harvest " + (await app.harvestAmount.call()));
+
         await web3tx(sf.host.batchCall, "Bob joining the game too")(
-           createPlayBatchCall(100),
-         { from: bob }
-         );
-          await web3tx(sf.host.batchCall, "Dan joining the game too")(
+            createPlayBatchCall(100),
+            { from: bob }
+        );
+        appRealtimeBalance = printRealtimeBalance("App", app.address);
+        appRealtimePeanutBalance = printNutsRealtimeBalance("App", app.address);
+        console.log("peanuts ready to harvest " + (await app.harvestAmount.call()));
+
+        await web3tx(sf.host.batchCall, "Dan joining the game too")(
             createPlayBatchCall(100),
             { from: dan }
         );
-
-        //time travel
-        timeDelta = 60*1000; 
-        console.log("traveling " + timeDelta + " seconds into the future ...");
-        await traveler.advanceTimeAndBlock(timeDelta);
+        appRealtimeBalance = printRealtimeBalance("App", app.address);
+        appRealtimePeanutBalance = printNutsRealtimeBalance("App", app.address);
+        console.log("peanuts ready to harvest " + (await app.harvestAmount.call()));
         
-        //printNutsRealtimeBalance("App",app.address);
+
+        await web3tx(sf.host.batchCall, "Bob triggers event")(
+            newTriggerEvent(),
+            {from: bob}
+        );
+        appRealtimeBalance = printRealtimeBalance("App", app.address);
+        appRealtimePeanutBalance = printNutsRealtimeBalance("App", app.address);
+        console.log("peanuts ready to harvest " + (await app.harvestAmount.call()));
+        
+        appRealtimeBalance = printRealtimeBalance("App", app.address);
+        appRealtimePeanutBalance = printNutsRealtimeBalance("App", app.address);
     })
 
 
