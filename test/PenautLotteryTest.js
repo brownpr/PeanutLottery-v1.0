@@ -609,11 +609,12 @@ contract("PeanutLottery", accounts => {
         console.log('waiting 30 seconds ...');
         setTimeout(async () => {
             console.log('...waiting over');
-            done();  
+            const finTime = await app.getTimestamp.call();
+            console.log("Final time: " + finTime);
+            console.log("current block number: " + (await web3.eth.getBlockNumber()));
+            done(); 
         },3000000);
-        const finTime = await app.getTimestamp.call();
-        console.log("Final time: " + finTime);
-        console.log("current block number: " + (await web3.eth.getBlockNumber()));
+        
 
     })
 
