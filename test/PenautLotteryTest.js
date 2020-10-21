@@ -10,7 +10,7 @@ const deploySuperToken = require("@superfluid-finance/ethereum-contracts/scripts
 const SuperfluidSDK = require("@superfluid-finance/ethereum-contracts");
 const { web3 } = require("@openzeppelin/test-helpers/src/setup");
 const PeanutLotteryTest = artifacts.require("PeanutLottery");
-const mocha = require("mocha");
+const traveler = require("ganache-time-traveler")
 
 contract("PeanutLottery", accounts => {
 
@@ -26,6 +26,11 @@ contract("PeanutLottery", accounts => {
     let dai;
     let daix;
     let app;
+
+    const nutsAddress = "0x99dD48C6FC705028cFe34BA30651e3Fe4be9713e";
+    let supernut;
+    let nuts;
+    let nutx;
 
     beforeEach(async function () {
         await deployFramework(errorHandler);
@@ -51,13 +56,24 @@ contract("PeanutLottery", accounts => {
         const daixWrapper = await sf.getERC20Wrapper(dai);
         daix = await sf.contracts.ISuperToken.at(daixWrapper.wrapperAddress);
 
+        
         app = await web3tx(PeanutLotteryTest.new, "Deploy PeanutLottery")(
             sf.host.address,
             sf.agreements.cfa.address,
             sf.agreements.ida.address,
             daix.address,
-            "0x99dD48C6FC705028cFe34BA30651e3Fe4be9713e"
+            nutsAddress
         );
+        
+        const supernutAddress = await sf.resolver.get(nutsAddress);
+        console.log(supernutAddress);
+        // const supernutWrapper = await sf.getERC20Wrapper(nutsAddress);
+        // console.log(supernutWrapper);
+        //const supernutAddress = await sf.contracts.ISuperToken.at(supernut.address);
+        //console.log("-----------supernutAddress is: " + supernutAddress);
+        //nuts = await sf.contracts.ISuperToken.at(supernutAddress);
+        //const nutsWrapper = await sf.getERC20Wrapper(nut); 
+        //nutx = await sf.contracts.ISuperToken.at(nutsWrapper.wrapperAddress);
 
         for (let i = 0; i < accounts.length; ++i) {
             await web3tx(dai.approve, `Account ${i} approves daix`)(daix.address, toWad(100), { from: accounts[i] });
@@ -72,7 +88,15 @@ contract("PeanutLottery", accounts => {
             b.owedDeposit.toString());
         return b;
     }
-    
+
+    // async function printNutsRealtimeBalance(label, account) {
+    //     const b = await nuts.balanceOf.call(account);
+    //     console.log(`${label} realtime balance`,
+    //         b.availableBalance.toString(),
+    //         b.deposit.toString(),
+    //         b.owedDeposit.toString());
+    //     return b;
+    // }
 
     function createPlayBatchCall(upgradeAmount = 0) {
         return [
@@ -107,6 +131,7 @@ contract("PeanutLottery", accounts => {
             ]               
         ];
     }
+    
 
     function newTriggerEvent() {
         return [
@@ -601,22 +626,51 @@ contract("PeanutLottery", accounts => {
 
     // });
 
-    it("should create a days worth of peanuts", async () =>{
-    
-        const initTime = await app.getTimestamp.call();
-        console.log("current block number: " + (await web3.eth.getBlockNumber()));
-        console.log("Initial time: " + initTime);
-        console.log('waiting 30 seconds ...');
-        setTimeout(async () => {
-            console.log('...waiting over');
-            const finTime = await app.getTimestamp.call();
-            console.log("Final time: " + finTime);
-            console.log("current block number: " + (await web3.eth.getBlockNumber()));
-            done(); 
-        },3000000);
-        
+    // it("should create 30 seconds of peanuts", async () =>{
 
+    //     const initTime = await app.getTimestamp.call();
+    //     console.log("current block number: " + (await web3.eth.getBlockNumber()));
+
+    //     //time travel
+    //     timeDelta = 30000;
+    //     console.log("traveling " + timeDelta + " seconds into the future ...");
+    //     await traveler.advanceTimeAndBlock(timeDelta);
+
+    //     const finTime = await app.getTimestamp.call();
+    //     console.log("current block number: " + (await web3.eth.getBlockNumber()));
+    //     assert.equal((finTime - initTime), timeDelta)
+
+
+    //     console.log("Peanuts to harvest = " + (await app.harvestAmount.call()));
+    //     assert.equal(timeDelta, await app.harvestAmount.call());
+
+    // })
+
+    it("should create and allocate peanuts to players ", async () => {
+        assert.equal((await app.currentWinner.call()).player, ZERO_ADDRESS);
+        //3 players join
+        await web3tx(sf.host.batchCall, "Carol joining the game")(
+            createPlayBatchCall(100),
+            { from: carol }
+        );
+        await web3tx(sf.host.batchCall, "Bob joining the game too")(
+           createPlayBatchCall(100),
+         { from: bob }
+         );
+          await web3tx(sf.host.batchCall, "Dan joining the game too")(
+            createPlayBatchCall(100),
+            { from: dan }
+        );
+
+        //time travel
+        timeDelta = 60*1000; 
+        console.log("traveling " + timeDelta + " seconds into the future ...");
+        await traveler.advanceTimeAndBlock(timeDelta);
+        
+        //printNutsRealtimeBalance("App",app.address);
     })
+
+
 
 
 });
