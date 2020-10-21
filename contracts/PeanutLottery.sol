@@ -105,7 +105,7 @@ contract PeanutLottery is Ownable, ISuperApp {
             _ida,
             abi.encodeWithSelector(
                 _ida.createIndex.selector,
-                _superPeanut,
+                ISuperToken(_superPeanut),
                 INDEX_ID,
                 new bytes(0)
             )
