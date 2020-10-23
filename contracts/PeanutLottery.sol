@@ -53,8 +53,9 @@ contract PeanutLottery is Ownable, ISuperApp {
 
     ///@dev token consts
     ISuperToken private _acceptedToken; // Accepted Token
-    IERC20 private _peanutToken; // underlying unwrapped peanuts
-    address private _superPeanut; // superPeanut address, wrapped by superfluid
+    address private _superPeanutAddress; //Peanut Token
+    ISuperToken private _peanutToken; // underlying unwrapped peanuts
+    ISuperToken private _superPeanut; // superPeanut address, wrapped by superfluid
     address private burnerAddress = address(0); // burned peanuts go to 0x0 address
     uint private _burnedPeanuts;
 
@@ -76,19 +77,22 @@ contract PeanutLottery is Ownable, ISuperApp {
         IConstantFlowAgreementV1 cfa,
         IInstantDistributionAgreementV1 ida,
         ISuperToken acceptedToken,
-        IERC20 peanutToken
+        ISuperToken peanutToken,
+        ISuperToken superPeanut
         ) 
     {
         assert(address(host) != address(0));
         assert(address(cfa) != address(0));
         assert(address(acceptedToken) != address(0));
         assert(address(peanutToken) != address(0));
+        assert(address(superPeanut) != address(0));
 
         _host = host;
         _cfa = cfa;
         _ida = ida;
         _acceptedToken = acceptedToken;
         _peanutToken = peanutToken; 
+        _superPeanut = superPeanut;
 
         uint configWord = SuperAppDefinitions.TYPE_APP_FINAL;
 
@@ -97,19 +101,24 @@ contract PeanutLottery is Ownable, ISuperApp {
         //     SuperAppDefinitions.BEFORE_AGREEMENT_TERMINATED_NOOP |
         //     SuperAppDefinitions.AFTER_AGREEMENT_TERMINATED_NOOP;
         
+        _peanutToken.approve(address(this), 946728000);
+        _superPeanut.approve(address(this), 946728000);
+
         _host.registerApp(configWord);
 
         //retrieve the superPeanut contract;
-        (_superPeanut , ) = _host.getERC20Wrapper(
-            _peanutToken,
-            "NUTS"
-        );
+        // (_superPeanutAddress , ) = _host.getERC20Wrapper(
+        //     ISuperToken(_peanutToken),
+        //     "fNUTS"
+        // );
+        
+        // _superPeanut = ISuperToken(_superPeanutAddress);
         
         // _host.callAgreement(
         //     _ida,
         //     abi.encodeWithSelector(
         //         _ida.createIndex.selector,
-        //         ISuperToken(_superPeanut),
+        //         _superPeanutToken,
         //         INDEX_ID,
         //         new bytes(0)
         //     )
@@ -199,6 +208,10 @@ contract PeanutLottery is Ownable, ISuperApp {
         return _draw(player, ctx);
     }
 
+    // function getPeanutAddress() view public returns(address superPeanutAddress) {
+    //     superPeanutAddress = address(_superPeanut);
+    // }
+
     ///@dev remove player qhen they leave pool 
     function _quit(
         bytes calldata ctx
@@ -209,7 +222,6 @@ contract PeanutLottery is Ownable, ISuperApp {
         (,,address player,,) = _host.decodeCtx(ctx);
 
         _playersSet.remove(player);
-        //_updatePeanutAllocation(player);
         
         return _draw(player, ctx);
     }
@@ -296,7 +308,7 @@ contract PeanutLottery is Ownable, ISuperApp {
 
     ///@dev Function that wraps peanuts into superPeanuts when called, 1 per second since last called. 
     function harvestAmount() view public returns(uint _peanutsToHarvest){
-        _peanutsToHarvest = (block.timestamp - _lastTimeStamp)/1000;
+        _peanutsToHarvest = (block.timestamp - _lastTimeStamp);
     }
 
     ///@dev Function to distributed peanuts to all users after _draw is run
@@ -309,51 +321,53 @@ contract PeanutLottery is Ownable, ISuperApp {
         ///@dev If no peanuts are ready for harvest, return
         if(peanutQuantity == 0) {return;}
         //harvest the peanuts
-        ISuperToken(_superPeanut).upgrade(peanutQuantity);
+        _superPeanut.upgrade(peanutQuantity);
+        return;
         //to avoid leftovers, collect peanutAmount
-        uint peanutAmount = ISuperToken(_superPeanut).balanceOf(address(this));
-        // check exactly how much we should distribute (there is a precision issue so need this extra function)
-        (uint256 actualPeanutAmount,) = _ida.calculateDistribution(
-            ISuperToken(_superPeanut),
-            address(this), 
-            INDEX_ID,
-            peanutAmount);
+        //uint peanutAmount = _peanutToken.balanceOf(address(this));
+        // //check exactly how much we should distribute (there is a precision issue so need this extra function)
+        // (uint256 actualPeanutAmount,) = _ida.calculateDistribution(
+        //     _peanutToken,
+        //     address(this), 
+        //     INDEX_ID,
+        //     peanutAmount
+        // );
           
-        // distribute the peanuts to everyone subscribed to the INDEX_ID
-        _host.callAgreement(
-            _ida,
-            abi.encodeWithSelector(
-                _ida.distribute.selector,
-                _superPeanut,
-                INDEX_ID,
-                actualPeanutAmount,
-                new bytes(0)
-            )
-        );
+        // // distribute the peanuts to everyone subscribed to the INDEX_ID
+        // _host.callAgreement(
+        //     _ida,
+        //     abi.encodeWithSelector(
+        //         _ida.distribute.selector,
+        //         _peanutToken,
+        //         INDEX_ID,
+        //         actualPeanutAmount,
+        //         new bytes(0)
+        //     )
+        // );
     }
 
 
-    ///@dev function to give farmers their fair share 
-    function _updatePeanutAllocation(address farmer) private {
-        // here we should give the user some units in the IDA based on their total stream size
-        (,int96 totalStreamSize,,) = _cfa.getFlow(_acceptedToken, farmer, address(this));        
-        uint128 currentUnits;
+    // ///@dev function to give farmers their fair share 
+    // function _updatePeanutAllocation(address farmer) private {
+    //     // here we should give the user some units in the IDA based on their total stream size
+    //     (,int96 totalStreamSize,,) = _cfa.getFlow(_acceptedToken, farmer, address(this));        
+    //     uint128 currentUnits;
 
-        // here we give the farmer the appropriate amount of peanutAllocation (units) based on their stream
-        (,currentUnits,) = _ida.getSubscription(ISuperToken(_superPeanut), address(this), INDEX_ID, farmer);
-        _host.callAgreement(
-            _ida,
-            abi.encodeWithSelector(
-                _ida.updateSubscription.selector,
-                ISuperToken(_superPeanut),
-                INDEX_ID,
-                farmer,
-                totalStreamSize,
-                new bytes(0)
-            )
-        );
+    //     // here we give the farmer the appropriate amount of peanutAllocation (units) based on their stream
+    //     (,currentUnits,) = _ida.getSubscription(_superPeanut, address(this), INDEX_ID, farmer);
+    //     _host.callAgreement(
+    //         _ida,
+    //         abi.encodeWithSelector(
+    //             _ida.updateSubscription.selector,
+    //             _peanutToken,
+    //             INDEX_ID,
+    //             farmer,
+    //             totalStreamSize,
+    //             new bytes(0)
+    //         )
+    //     );
         
-    }
+    // }
 
     //return number of burnedPeanuts
     function burnedNuts() view public returns(uint numberOfBurnedNuts){
@@ -415,7 +429,7 @@ contract PeanutLottery is Ownable, ISuperApp {
         onlyExpected(superToken, agreementClass)
         returns(bytes memory cbdata)
     {   
-        //require(superToken == ISuperToken(_superPeanut), "DRT: Unsupported cash token");
+        //require(superToken == _peanutToken, "DRT: Unsupported cash token");
         //require(agreementClass == address(_ida), "DRT: Unsupported agreement");
         cbdata = _meetRequirements(ctx);
     }
@@ -445,7 +459,7 @@ contract PeanutLottery is Ownable, ISuperApp {
         onlyExpected(superToken, agreementClass)
         returns (bytes memory cbdata)
     {   
-        //require(superToken == ISuperToken(_superPeanut), "DRT: Unsupported cash token");
+        //require(superToken == _superPeanutToken, "DRT: Unsupported cash token");
         //require(agreementClass == address(_ida), "DRT: Unsupported agreement");
         cbdata = _meetRequirements(ctx);
     }
@@ -474,7 +488,7 @@ contract PeanutLottery is Ownable, ISuperApp {
         onlyHost
         returns (bytes memory data) 
     {   
-        //if(superToken != ISuperToken(_superPeanut)) return new bytes(0);
+        //if(superToken != _peanutToken) return new bytes(0);
         //if(agreementClass != address(_ida)) return new bytes(0);
         //Never revert in a termination callback
         if(!_isSameToken(superToken) || !_isCFAv1(agreementClass)) return abi.encode(true);
@@ -492,7 +506,7 @@ contract PeanutLottery is Ownable, ISuperApp {
         onlyHost
         returns(bytes memory newCtx)
     {   
-        //if(superToken != ISuperToken(_superPeanut)) return ctx;
+        //if(superToken != _peanutToken) return ctx;
         //if(agreementClass != address(_ida)) return ctx;
         //Never rever in a termination callback
         (bool shouldIgnore) = abi.decode(cbdata, (bool));
