@@ -1,7 +1,7 @@
 {
-  "name": "flowlottery-superapp",
+  "name": "peanut-lottery",
   "version": "1.0.0",
-  "description": "Flow lottery - a superfluid SuperApp demo",
+  "description": "Peanut Lottery a DApp lottery game",
   "main": "scripts/demo.js",
   "scripts": {
     "build": "truffle compile --all",
@@ -10,7 +10,7 @@
     "deploy": "npm run build && RELEASE_VERSION=0.1.2-preview-20201014 npx truffle --network goerli exec scripts/deploy.js"
   },
   "author": "Superfluid",
-  "license": "MIT",
+  "license": "",
   "devDependencies": {
     "@decentral.ee/web3-helpers": "^0.3.2",
     "@openzeppelin/contracts": "^3.2.1-solc-0.7",
