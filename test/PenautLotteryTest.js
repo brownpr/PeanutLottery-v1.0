@@ -11,7 +11,7 @@ const SuperfluidSDK = require("@superfluid-finance/ethereum-contracts");
 const { web3 } = require("@openzeppelin/test-helpers/src/setup");
 const PeanutLotteryTest = artifacts.require("PeanutLottery");
 const traveler = require("ganache-time-traveler");
-const ganache = require("ganache-cli");
+//const ganache = require("ganache-cli");
 
 
 
@@ -37,9 +37,6 @@ contract("PeanutLottery", async (accounts) => {
 
 
     beforeEach(async function () {
-        let snapshot = await traveler.takeSnapshot();
-        snapshotId = snapshot['result'];
-
         await deployFramework(errorHandler);
         sf = new SuperfluidSDK.Framework({ web3Provider: web3.currentProvider });
         await sf.initialize();
@@ -65,12 +62,13 @@ contract("PeanutLottery", async (accounts) => {
 
         //nuts token
         if (!nut) {
-            await deployTestToken(errorHandler, [":","NUTS"]);
-            const nutsAddress = await sf.resolver.get("tokens.NUTS");
+            await deployTestToken(errorHandler, [":","fNUTS"]);
+            const nutsAddress = await sf.resolver.get("tokens.fNUTS");
             nut = await sf.contracts.TestToken.at(nutsAddress);
+            
         }
 
-        await deploySuperToken(errorHandler, [":","NUTS"]);
+        await deploySuperToken(errorHandler, [":","fNUTS"]);
         const nutsWrapper = await sf.getERC20Wrapper(nut);
         supernut = await sf.contracts.ISuperToken.at(nutsWrapper.wrapperAddress);
         
@@ -81,7 +79,14 @@ contract("PeanutLottery", async (accounts) => {
             sf.agreements.cfa.address,
             sf.agreements.ida.address,
             daix.address,
+            nut.address,
             supernut.address
+        );
+
+        await web3tx(nut.mint, "Admin mints many nuts to app")(
+            app.address,
+            toWad(946728000),
+            {from: admin}
         );
 
         
@@ -89,16 +94,13 @@ contract("PeanutLottery", async (accounts) => {
             await web3tx(dai.approve, `Account ${i} approves daix`)(daix.address, toWad(100), { from: accounts[i] });
         }
 
-        //time travel
-        timeDelta = 60*1000; 
-        console.log("traveling " + (timeDelta/1000) + " seconds into the future ...");
-        await traveler.advanceTimeAndBlock(timeDelta);
     });   
 
-    afterEach(async() => {
-        await traveler.revertToSnapshot(snapshotId);
-    });
-
+    async function timetravel(seconds) {
+        timeDelta = seconds*1000; 
+        console.log("traveling " + seconds + " seconds into the future ...");
+        await traveler.advanceTimeAndBlock(timeDelta);
+    }
 
 
     async function printRealtimeBalance(label, account) {
@@ -111,14 +113,21 @@ contract("PeanutLottery", async (accounts) => {
     }
 
     async function printNutsRealtimeBalance(label, account) {
+        const b = await nut.balanceOf.call(account);
+        console.log(`${label} realtime nut balance`,
+            b.toString());
+        return b;
+    }
+
+    async function printSupernutsRealtimeBalance(label, account) {
         const b = await supernut.realtimeBalanceOfNow.call(account);
-        console.log(`${label} realtime peanut balance`,
+        console.log(`${label} realtime supernut balance`,
             b.availableBalance.toString(),
             b.deposit.toString(),
             b.owedDeposit.toString());
         return b;
     }
-
+    
     function createPlayBatchCall(upgradeAmount = 0) {
         return [
             [
@@ -149,7 +158,7 @@ contract("PeanutLottery", async (accounts) => {
                     MINIMUM_GAME_FLOW_RATE.toString(),
                     "0x"
                 ).encodeABI()
-            ]               
+            ]             
         ];
     }
     
@@ -167,7 +176,7 @@ contract("PeanutLottery", async (accounts) => {
                 5, // callAppAction to participate
                 app.address,
                 app.contract.methods.triggerEvent("0x").encodeABI()
-            ]            
+            ] 
         ];
     }
 
@@ -188,16 +197,24 @@ contract("PeanutLottery", async (accounts) => {
         ];
     }
 
+    async function getHarvestAmount() {
+        const a = (await app.harvestAmount.call()).toString();
+        console.log(`peanuts to harvest: `,
+            a);
+        return a;
+    }
+
     // it("Lonely game case", async () => {
     //     let appRealtimeBalance;
     //     assert.equal((await app.currentWinner.call()).player, ZERO_ADDRESS);
+
     //     // bob is the first player
     //     await web3tx(sf.host.batchCall, "Bob joining the game")(
-    //         createPlayBatchCall(100),
+    //         createPlayBatchCall(100, (await getHarvestAmount())),
     //         { from: bob }
     //     );
     //     await expectRevert(sf.host.batchCall(
-    //         createPlayBatchCall(0),
+    //         createPlayBatchCall(0, (await getHarvestAmount())),
     //         { from: bob }
     //     ), "Flow already exist");
     //     assert.equal((await app.currentWinner.call()).player, bob);
@@ -209,6 +226,7 @@ contract("PeanutLottery", async (accounts) => {
     //         "0");
     //     appRealtimeBalance = await printRealtimeBalance("App", app.address);
     //     await printRealtimeBalance("Bob", bob);
+
     //     // bob quits the game
     //     await web3tx(sf.host.callAgreement, "Bob quiting the game")(
     //         sf.agreements.cfa.address,
@@ -230,9 +248,10 @@ contract("PeanutLottery", async (accounts) => {
     //     appRealtimeBalance = await printRealtimeBalance("App", app.address);
     //     await printRealtimeBalance("Bob", bob);
     //     await printRealtimeBalance("Carol", carol);
+
     //     // bob is the only player again
     //     await web3tx(sf.host.batchCall, "Bob joining the game again")(
-    //         createPlayBatchCall(),
+    //         createPlayBatchCall(0, (await getHarvestAmount())),
     //         { from: bob }
     //     );
     //     assert.equal((await app.currentWinner.call()).player, bob);
@@ -254,7 +273,7 @@ contract("PeanutLottery", async (accounts) => {
     //     // Round 1: +bob, +carol, -bob, - carol
     //     //
     //     await web3tx(sf.host.batchCall, "Bob joining the game")(
-    //         createPlayBatchCall(100),
+    //         createPlayBatchCall(100, (await getHarvestAmount())),
     //         { from: bob }
     //     );
     //     assert.equal((await app.currentWinner.call()).player, bob);
@@ -268,7 +287,7 @@ contract("PeanutLottery", async (accounts) => {
     //     await printRealtimeBalance("Bob", bob);
     //     // carol enters the game
     //     await web3tx(sf.host.batchCall, "Carol joining the game too")(
-    //         createPlayBatchCall(100),
+    //         createPlayBatchCall(100, (await getHarvestAmount())),
     //         { from: carol }
     //     );
     //     let winner = (await app.currentWinner.call()).player;
@@ -335,7 +354,7 @@ contract("PeanutLottery", async (accounts) => {
     //     //
     //     // bob join the game again
     //     await web3tx(sf.host.batchCall, "Bob joining the game again")(
-    //         createPlayBatchCall(),
+    //         createPlayBatchCall(0, (await getHarvestAmount())),
     //         { from: bob }
     //     );
     //     assert.equal((await app.currentWinner.call()).player, bob);
@@ -353,7 +372,7 @@ contract("PeanutLottery", async (accounts) => {
     //     await printRealtimeBalance("Carol", carol);
     //     // carol join the game again too
     //     await web3tx(sf.host.batchCall, "Carol joining the game again too")(
-    //         createPlayBatchCall(),
+    //         createPlayBatchCall(0, (await getHarvestAmount())),
     //         { from: carol }
     //     );
     //     await web3tx(sf.host.callAgreement, "Carol quiting the game first this time")(
@@ -394,11 +413,11 @@ contract("PeanutLottery", async (accounts) => {
     //     // Round 3: +carol, +bob, -bob, - carol
     //     //
     //     await web3tx(sf.host.batchCall, "Carol joining the game first")(
-    //         createPlayBatchCall(),
+    //         createPlayBatchCall(0, (await getHarvestAmount())),
     //         { from: carol }
     //     );
     //     await web3tx(sf.host.batchCall, "Bob joining the game again")(
-    //         createPlayBatchCall(),
+    //         createPlayBatchCall(0, (await getHarvestAmount())),
     //         { from: bob }
     //     );
     //     await web3tx(sf.host.callAgreement, "Bob quiting the game")(
@@ -429,15 +448,15 @@ contract("PeanutLottery", async (accounts) => {
     //     counters[bob] = { name: "bob", count: 0 };
     //     counters[dan] = { name: "dan", count: 0 };
     //     await web3tx(sf.host.batchCall, "Carol joining the game")(
-    //         createPlayBatchCall(100),
+    //         createPlayBatchCall(100, (await getHarvestAmount())),
     //         { from: carol }
     //     );
     //     await web3tx(sf.host.batchCall, "Bob joining the game too")(
-    //         createPlayBatchCall(100),
+    //         createPlayBatchCall(100, (await getHarvestAmount())),
     //         { from: bob }
     //     );
     //     await web3tx(sf.host.batchCall, "Dan joining the game too")(
-    //         createPlayBatchCall(100),
+    //         createPlayBatchCall(100, (await getHarvestAmount())),
     //         { from: dan }
     //     );
     //     for (let i = 0; i < 20; ++i) {
@@ -453,7 +472,7 @@ contract("PeanutLottery", async (accounts) => {
     //             { from: dan }
     //         );
     //         await web3tx(sf.host.batchCall, "Dan joining the game too")(
-    //             createPlayBatchCall(),
+    //             createPlayBatchCall(0, (await getHarvestAmount())),
     //             { from: dan }
     //         );
     //     }
@@ -468,15 +487,15 @@ contract("PeanutLottery", async (accounts) => {
     //     assert.equal((await app.currentWinner.call()).player, ZERO_ADDRESS);
     //     //3 players join
     //     await web3tx(sf.host.batchCall, "Carol joining the game")(
-    //         createPlayBatchCall(100),
+    //         createPlayBatchCall(100,(await getHarvestAmount())),
     //         { from: carol }
     //     );
     //     await web3tx(sf.host.batchCall, "Bob joining the game too")(
-    //        createPlayBatchCall(100),
+    //        createPlayBatchCall(100, (await getHarvestAmount())),
     //      { from: bob }
     //      );
     //       await web3tx(sf.host.batchCall, "Dan joining the game too")(
-    //         createPlayBatchCall(100),
+    //         createPlayBatchCall(100, (await getHarvestAmount())),
     //         { from: dan }
     //     );
         
@@ -490,7 +509,7 @@ contract("PeanutLottery", async (accounts) => {
     //         //bob triggers event
     //         previousPeanutsBurned = await app.burnedNuts.call();
     //         await web3tx(sf.host.batchCall, "Bob triggers event")(
-    //             newTriggerEvent(),
+    //             newTriggerEvent((await getHarvestAmount())),
     //             {from: bob}
     //         );
     //         currentPeanutsBurned = await app.burnedNuts.call();
@@ -513,15 +532,15 @@ contract("PeanutLottery", async (accounts) => {
     //     assert.equal((await app.currentWinner.call()).player, ZERO_ADDRESS);
     //     //3 players join
     //     await web3tx(sf.host.batchCall, "Carol joining the game")(
-    //         createPlayBatchCall(100),
+    //         createPlayBatchCall(100, (await getHarvestAmount())),
     //         { from: carol }
     //     );
     //     await web3tx(sf.host.batchCall, "Bob joining the game too")(
-    //        createPlayBatchCall(100),
+    //        createPlayBatchCall(100, (await getHarvestAmount())),
     //      { from: bob }
     //      );
     //       await web3tx(sf.host.batchCall, "Dan joining the game too")(
-    //         createPlayBatchCall(100),
+    //         createPlayBatchCall(100, (await getHarvestAmount())),
     //         { from: dan }
     //     );
     //     assert.notEqual((await app.currentWinner.call()).player, ZERO_ADDRESS);
@@ -556,7 +575,7 @@ contract("PeanutLottery", async (accounts) => {
     //         //bob triggers event
     //         previousPeanutsBurnedv2 = await app.burnedNuts.call();
     //         await web3tx(sf.host.batchCall, "Bob triggers event")(
-    //             newTriggerEvent(),
+    //             newTriggerEvent((await getHarvestAmount())),
     //             {from: bob}
     //         );
     //         //setiting const to winner address 
@@ -579,15 +598,15 @@ contract("PeanutLottery", async (accounts) => {
     //     assert.equal((await app.currentWinner.call()).player, ZERO_ADDRESS);
     //     //3 players join
     //     await web3tx(sf.host.batchCall, "Carol joining the game")(
-    //         createPlayBatchCall(100),
+    //         createPlayBatchCall(100, (await getHarvestAmount())),
     //         { from: carol }
     //     );
     //     await web3tx(sf.host.batchCall, "Bob joining the game too")(
-    //        createPlayBatchCall(100),
+    //        createPlayBatchCall(100, (await getHarvestAmount())),
     //      { from: bob }
     //      );
     //       await web3tx(sf.host.batchCall, "Dan joining the game too")(
-    //         createPlayBatchCall(100),
+    //         createPlayBatchCall(100, (await getHarvestAmount())),
     //         { from: dan }
     //     );
     //     assert.notEqual((await app.currentWinner.call()).player, ZERO_ADDRESS);
@@ -626,7 +645,7 @@ contract("PeanutLottery", async (accounts) => {
     //         //bob triggers event
     //         previousPeanutsBurnedv2 = await app.burnedNuts.call();
     //         await web3tx(sf.host.batchCall, "Bob triggers event")(
-    //             newTriggerEvent(),
+    //             newTriggerEvent((await getHarvestAmount())),
     //             {from: bob}
     //         );
     //         //setiting const to winner address 
@@ -669,9 +688,9 @@ contract("PeanutLottery", async (accounts) => {
 
     it("should create and allocate peanuts to players ", async () => {
         let appRealtimeBalance;
-        let appRealtimePeanutBalance;
+        let appRealtimeNutBalance;
         appRealtimeBalance = printRealtimeBalance("App", app.address);
-        appRealtimePeanutBalance = printNutsRealtimeBalance("App", app.address);
+        appRealtimeNutBalance = printNutsRealtimeBalance("App", app.address);
         console.log("peanuts ready to harvest " + (await app.harvestAmount.call()));
         assert.equal((await app.currentWinner.call()).player, ZERO_ADDRESS);
 
@@ -681,7 +700,7 @@ contract("PeanutLottery", async (accounts) => {
             { from: carol }
         );
         appRealtimeBalance = printRealtimeBalance("App", app.address);
-        appRealtimePeanutBalance = printNutsRealtimeBalance("App", app.address);
+        appRealtimeNutBalance = printNutsRealtimeBalance("Host", sf.host.address);
         console.log("peanuts ready to harvest " + (await app.harvestAmount.call()));
 
         await web3tx(sf.host.batchCall, "Bob joining the game too")(
@@ -689,7 +708,7 @@ contract("PeanutLottery", async (accounts) => {
             { from: bob }
         );
         appRealtimeBalance = printRealtimeBalance("App", app.address);
-        appRealtimePeanutBalance = printNutsRealtimeBalance("App", app.address);
+        appRealtimeNutBalance = printNutsRealtimeBalance("Host", sf.host.address);
         console.log("peanuts ready to harvest " + (await app.harvestAmount.call()));
 
         await web3tx(sf.host.batchCall, "Dan joining the game too")(
@@ -697,21 +716,32 @@ contract("PeanutLottery", async (accounts) => {
             { from: dan }
         );
         appRealtimeBalance = printRealtimeBalance("App", app.address);
-        appRealtimePeanutBalance = printNutsRealtimeBalance("App", app.address);
+        appRealtimeNutBalance = printNutsRealtimeBalance("Host", sf.host.address);
         console.log("peanuts ready to harvest " + (await app.harvestAmount.call()));
         
-
-        await web3tx(sf.host.batchCall, "Bob triggers event")(
-            newTriggerEvent(),
-            {from: bob}
-        );
-        appRealtimeBalance = printRealtimeBalance("App", app.address);
-        appRealtimePeanutBalance = printNutsRealtimeBalance("App", app.address);
-        console.log("peanuts ready to harvest " + (await app.harvestAmount.call()));
+        //bob wait 60 seconds and then triggers an event
+        for (i=0; i<20; i++){
+            //timetravel
+            timetravel(60);
+            await web3tx(sf.host.batchCall, "Bob triggers event")(
+                newTriggerEvent(),
+                {from: bob}
+            );
+            appRealtimeBalance = printRealtimeBalance("App", app.address);
+            appRealtimeNutBalance = printNutsRealtimeBalance("Host", sf.host.address);
+            console.log("peanuts ready to harvest " + (await app.harvestAmount.call()));
+        }
+        
         
         appRealtimeBalance = printRealtimeBalance("App", app.address);
-        appRealtimePeanutBalance = printNutsRealtimeBalance("App", app.address);
+        appRealtimeNutBalance = printNutsRealtimeBalance("Host", sf.host.address);
     })
+
+    // it("should have the same address as supernut", async () => {
+    //     console.log((await app.getPeanutAddress.call()));
+    //     console.log((await supernut.address));
+    //     console.log((await nut.address));
+    // })
 
 
 
